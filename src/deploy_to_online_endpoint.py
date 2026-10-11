@@ -11,7 +11,6 @@ from azure.ai.ml.constants import AssetTypes
 from azure.core.exceptions import ResourceNotFoundError
 
 import argparse
-import datetime
 
 
 def get_data_collector() -> DataCollector:
@@ -47,7 +46,19 @@ def get_ml_client(subscription_id: str, resource_group: str, workspace: str) -> 
 
 def ensure_endpoint(ml_client: MLClient, endpoint_name: str) -> ManagedOnlineEndpoint:
     try:
-        return ml_client.online_endpoints.get(name=endpoint_name)
+        endpoint = ml_client.online_endpoints.get(name=endpoint_name)
+
+        state = str(getattr(endpoint, "provisioning_state", "")).lower()
+        if state in {"deleting", "failed", "notcreated"}:
+            print(f"Endpoint '{endpoint_name}' is in provisioning state '{state}'. Recreating it.")
+            try:
+                ml_client.online_endpoints.begin_delete(name=endpoint_name).result()
+            except ResourceNotFoundError:
+                pass
+            raise ResourceNotFoundError(f"Endpoint {endpoint_name} is in invalid state: {state}")
+
+        return endpoint
+
     except ResourceNotFoundError:
         endpoint = ManagedOnlineEndpoint(
             name=endpoint_name,
