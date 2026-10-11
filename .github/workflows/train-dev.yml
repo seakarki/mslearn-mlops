@@ -27,19 +27,14 @@ jobs:
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
-          allow-no-subscriptions: true
 
       - name: Install Azure ML CLI
         run: |
-          az account clear
-          az extension add -n ml -y --only-show-errors
-          az extension update -n ml -y --only-show-errors
+          az extension add -n ml -y
 
       - name: Detect Azure ML workspace
         id: detect
         run: |
-          az account show
-
           RG_NAME=$(az group list --query "[?starts_with(name,'rg-ai300-l')].name | [0]" -o tsv)
           if [ -z "$RG_NAME" ]; then
             echo "No resource group starting with rg-ai300-l found." >&2
@@ -69,11 +64,6 @@ jobs:
             --query name -o tsv
 
           echo "job_name=$JOB_NAME" >> "$GITHUB_OUTPUT"
-
-      - name: Stream prod training job
-        continue-on-error: true
-        run: |
-          az ml job stream --name "${{ steps.train.outputs.job_name }}" --debug || true
 
       - name: Download prod training outputs
         id: download
