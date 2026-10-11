@@ -38,6 +38,21 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Register required Azure resource providers
+        run: |
+          az provider register --namespace Microsoft.MachineLearningServices
+          az provider register --namespace Microsoft.Compute
+          az provider register --namespace Microsoft.Storage
+          az provider register --namespace Microsoft.Network
+
+          for provider in Microsoft.MachineLearningServices Microsoft.Compute Microsoft.Storage Microsoft.Network; do
+            echo "Waiting for $provider to register..."
+            while [ "$(az provider show --namespace "$provider" --query registrationState -o tsv)" != "Registered" ]; do
+              sleep 5
+            done
+            echo "$provider is registered"
+          done
+
       - name: Install Azure ML CLI
         run: |
           az extension add -n ml -y
@@ -67,6 +82,22 @@ jobs:
           echo "workspace=$WS_NAME" >> "$GITHUB_OUTPUT"
           echo "subscription_id=$SUBSCRIPTION_ID" >> "$GITHUB_OUTPUT"
           echo "endpoint_name=$ENDPOINT_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Delete stale failed endpoint if it exists
+        run: |
+          ENDPOINT_NAME="${{ steps.detect.outputs.endpoint_name }}"
+          RG_NAME="${{ steps.detect.outputs.resource_group }}"
+          WS_NAME="${{ steps.detect.outputs.workspace }}"
+
+          if az ml online-endpoint show -n "$ENDPOINT_NAME" -g "$RG_NAME" -w "$WS_NAME" >/dev/null 2>&1; then
+            STATE=$(az ml online-endpoint show -n "$ENDPOINT_NAME" -g "$RG_NAME" -w "$WS_NAME" --query provisioningState -o tsv || true)
+            echo "Endpoint state: $STATE"
+
+            if [ "$STATE" = "Failed" ] || [ "$STATE" = "Deleting" ] || [ "$STATE" = "NotCreated" ]; then
+              echo "Deleting stale endpoint $ENDPOINT_NAME in state $STATE"
+              az ml online-endpoint delete -n "$ENDPOINT_NAME" -g "$RG_NAME" -w "$WS_NAME" --yes || true
+            fi
+          fi
 
       - name: Deploy model to managed online endpoint
         id: deploy
